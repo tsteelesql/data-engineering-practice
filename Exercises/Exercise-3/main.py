@@ -1,7 +1,7 @@
 import boto3
 import os
 import gzip
-import shutil
+from botocore.exceptions import BotoCoreError, ClientError
 
 """NOTE: 
 Outside this script, the AWS user must be configured in order to use boto3, otherwise a 403 error is returned
@@ -15,13 +15,10 @@ DIRECTORY_PATH = "Exercises/Exercise-3/downloads"
 bucket_name = 'commoncrawl'
 object_key = 'crawl-data/CC-MAIN-2022-05/wet.paths.gz'
 downloaded_file_name = "downloaded_file.gz"
-download_path = f"{DIRECTORY_PATH}/{downloaded_file_name}"
+download_path = os.path.join(DIRECTORY_PATH,downloaded_file_name)
 
 
-def download_file(bucket_name, object_key, download_path):
-    # Initialize an S3 client
-    s3 = boto3.client('s3')
-
+def download_file(s3,bucket_name, object_key, download_path):
     # Download the file
     s3.download_file(bucket_name, object_key, download_path)
 
@@ -32,7 +29,7 @@ def unzip_gz_file_and_read_first_line(download_path):
     with gzip.open(download_path, 'rt', encoding='utf-8') as file:
         first_line = file.readline()
     
-    print(f"Identified URL {first_line}")
+    print(f"Identified URL {first_line.strip()}")
     return first_line.strip()
 
 
@@ -40,18 +37,28 @@ def unzip_gz_file_and_read_first_line(download_path):
 def unzip_gz_file_and_read_each_line(download_path):
     with gzip.open(download_path, 'rt', encoding='utf-8') as file:
         for line in file:
-            print(line)
+            print(line.strip())
 
 
 def main():
 
-    if not os.path.isdir(DIRECTORY_PATH):
-        os.mkdir(DIRECTORY_PATH)
+    os.makedirs(DIRECTORY_PATH, exist_ok=True)
 
-    download_file(bucket_name, object_key, download_path)
-    new_object_key = unzip_gz_file_and_read_first_line(download_path)
-    download_file(bucket_name, new_object_key, download_path)
-    unzip_gz_file_and_read_each_line(download_path)
+    try:
+        # Initialize an S3 client
+        s3 = boto3.client('s3')
+        
+        download_file(s3, bucket_name, object_key, download_path)
+        new_object_key = unzip_gz_file_and_read_first_line(download_path)
+
+        if not new_object_key:
+            raise ValueError("Empty or invalid first line in the gzip file.")
+        
+        download_file(s3, bucket_name, new_object_key, download_path)
+        unzip_gz_file_and_read_each_line(download_path)
+    
+    except (BotoCoreError, ClientError) as e:
+        print(f"Download failed: {e}")
 
 if __name__ == "__main__":
     main()

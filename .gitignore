@@ -2,3 +2,4 @@
 *.DS_Store*
 *postgres-data*
 Exercises/Exercise-*/downloads/*
+Exercises/Exercise-4/output/*

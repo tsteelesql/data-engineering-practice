@@ -1,4 +1,6 @@
 import psycopg2
+from psycopg2.extensions import AsIs
+import os
 
 """Postgres is run from the Docker image.
 This command `docker-compose up run` needs run to get it set up, but after that
@@ -6,10 +8,18 @@ found it easier to run the container using docker desktop.  Could run from a sep
 terminal if desired, just not same one testing python
 """
 
+data_sources = {
+    "account": "Exercises/Exercise-5/data/accounts.csv",
+    "product": "Exercises/Exercise-5/data/products.csv",
+    "transaction": "Exercises/Exercise-5/data/transactions.csv"
+}
+
+
+
 CREATE_TABLE_SQL = """
+DROP TABLE IF EXISTS transaction;
 DROP TABLE IF EXISTS account;
 DROP TABLE IF EXISTS product;
-DROP TABLE IF EXISTS transaction;
 
 CREATE TABLE IF NOT EXISTS account (
     customer_id INTEGER NOT NULL,
@@ -20,6 +30,7 @@ CREATE TABLE IF NOT EXISTS account (
     city VARCHAR(50) NOT NULL,
     state VARCHAR(50) NOT NULL,
     zip_code CHAR(10) NOT NULL,
+
     join_date TIMESTAMP NOT NULL
 );
 
@@ -53,16 +64,12 @@ CREATE TABLE IF NOT EXISTS transaction (
 
 ALTER TABLE transaction ADD CONSTRAINT pk_transaction PRIMARY KEY (transaction_id);
 CLUSTER transaction USING pk_transaction;
-
-SELECT CURRENT_TIMESTAMP;
 """
 
 
 def create_tables(cur):
     try:
         cur.execute(CREATE_TABLE_SQL)
-        result = cur.fetchone()
-        return result
     except Exception as e:
         print("Table creation failed: %s", e)
         raise
@@ -72,30 +79,28 @@ def load_csv_to_postgres(cur,csv_file, table_name):
     try:
         with open(csv_file, 'r', encoding='utf-8') as f:    
             cur.copy_expert( f"COPY {table_name} FROM STDIN WITH CSV HEADER", f )
-        print(f"CSV data loaded into '{table_name}' successfully.")
+        #print(f"CSV data loaded into '{table_name}' successfully.")
+        cur.execute("SELECT COUNT(*) FROM %s;", (AsIs(table_name),))
+        row_count = cur.fetchone()
+        print(f"{row_count[0]} records loaded into table '{table_name}'.")
+
     except Exception as e:
         print(f"Error loading CSV: {e}")
 
 def main():
-    # Create connection - for real connection, would use Environment Variables
-    host = "localhost"
-    database = "postgres"
-    user = "postgres"
-    pas = "postgres"
-    conn = psycopg2.connect(host=host, database=database, user=user, password=pas)
-    cur = conn.cursor()
-    
-    result = create_tables(cur)
-    print("Current timestamp:", result[0])
-    load_csv_to_postgres(cur,'Exercises/Exercise-5/data/accounts.csv','account')
-    load_csv_to_postgres(cur,'Exercises/Exercise-5/data/products.csv','product')
-    load_csv_to_postgres(cur,'Exercises/Exercise-5/data/transactions.csv','transaction')
+    # Adjust environment variables to hold actual connection info
+    # For testing, just using localhost defaults.
+    host = os.getenv("DB_HOST", "localhost")
+    database = os.getenv("DB_NAME", "postgres")
+    user = os.getenv("DB_USER", "postgres")
+    pas = os.getenv("DB_PASSWORD", "postgres")
 
-
-    # Close the cursor and connection
-    cur.close()
-    conn.close()
-
+    with psycopg2.connect(host=host, database=database, user=user, password=pas) as conn:
+        with conn.cursor() as cur:
+            create_tables(cur)
+            
+            for table, filepath in data_sources.items():
+                load_csv_to_postgres(cur, filepath, table)
 
 
 if __name__ == "__main__":

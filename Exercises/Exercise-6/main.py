@@ -17,33 +17,38 @@ input_files = {
 }
 
 
+
 def get_average_durations(df,group_by_column):
-    daily_avg_duration_df = df.groupBy(f"{group_by_column}").agg(avg("duration").alias("average"))
-    return daily_avg_duration_df
+    print(f"Calculating average duration based on {group_by_column}.")
+    avg_duration_df = df.groupBy(col(group_by_column)).agg(avg("duration").alias("average"))
+    return avg_duration_df
 
 
 def get_trips_per_day(df):
+    print(f"Calculating trips per day.")
     trips_per_day_df = df.groupby("date").count()
-    
     return trips_per_day_df
 
 
 def get_top_starting_location_per_month(df):
+    print(f"Calculating top starting locations per month.")
     df_with_month = df.withColumn("month", month(df["date"]))
     top_starting_locations_df = df_with_month.groupBy("month","from_station_name").count().orderBy("count", ascending=False)
     return top_starting_locations_df
 
 
-def limit_df_to_two_weeks(df):
-    max_date = df.agg(max("date").alias("max_date")).collect()[0]["max_date"]
-    two_weeks_ago = max_date - timedelta(days=14)
+def limit_df_to_n_days(df,days):
+    print(f"Reducing data frame to last {days} day(s) to allow additional calculations.")
+    max_date = df.agg(max("date").alias("max_date")).first()["max_date"]
+    start_date = max_date - timedelta(days=int(days))
 
-    filtered_df = df.filter(col("date") >= two_weeks_ago.strftime("%Y-%m-%d"))
+    filtered_df = df.filter(col("date") >= start_date.strftime("%Y-%m-%d"))
     return filtered_df
 
 
-def get_top_3_starting_location_per_day(df):
-    
+def get_top_n_starting_location_per_day(df, limit):
+    print(f"Getting the top {limit} starting location(s) per day.")
+
     #Get initial counts per day
     daily_counts = df.groupBy("date", "from_station_name").agg(count("*").alias("count"))
 
@@ -51,13 +56,14 @@ def get_top_3_starting_location_per_day(df):
     window_spec = Window.partitionBy("date").orderBy(col("count").desc())
 
     top_stations = daily_counts.withColumn("rank", row_number().over(window_spec)) \
-                        .filter(col("rank") <= 3)
+                        .filter(col("rank") <= limit)
 
     return top_stations
 
 
-def get_top_ages_per_trips(df):
-    
+def get_top_n_ages_per_trips(df,limit):
+    print(f"Getting the top and bottom {limit} ages per trip duration.")
+
     window_spec_desc = Window.partitionBy("age").orderBy(col("duration").desc())
     window_spec_asc = Window.partitionBy("age").orderBy(col("duration").asc())
 
@@ -65,17 +71,19 @@ def get_top_ages_per_trips(df):
                 .withColumn("top_rank", row_number().over(window_spec_desc)) \
                 .withColumn("bottom_rank", row_number().over(window_spec_asc))
 
-    top_10_df = df_with_ranks.filter(col("top_rank") <= 10)
-    bottom_10_df = df_with_ranks.filter(col("bottom_rank") <= 10)
+    top_df = df_with_ranks.filter(col("top_rank") <= limit)
+    bottom_df = df_with_ranks.filter(col("bottom_rank") <= limit)
 
-    combined_df = top_10_df.union(bottom_10_df)
+    combined_df = top_df.union(bottom_df)
     return combined_df
 
 
 
 def read_csv_with_spark(spark, csv_path):
+    print(f"Reading in csv: {csv_path}")
+
     df = spark.read.option("header", "true").csv(csv_path)
-    current_year = int(datetime.now().year)
+    current_year = datetime.now().year
 
     df_with_date = df.withColumn("date", to_date("start_time")) \
                         .withColumn("duration",datediff("end_time","start_time")*24*60) \
@@ -97,10 +105,10 @@ def main():
         get_trips_per_day(df_with_date).show()
         get_top_starting_location_per_month(df_with_date).show()
 
-        two_week_df = limit_df_to_two_weeks(df_with_date)
-        get_top_3_starting_location_per_day(two_week_df).show()
+        two_week_df = limit_df_to_n_days(df_with_date,14)
+        get_top_n_starting_location_per_day(two_week_df,3).show()
         get_average_durations(df_with_date,'gender').show()
-        get_top_ages_per_trips(df_with_date).show()
+        get_top_n_ages_per_trips(df_with_date,10).show()
 
 
 

@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import to_date, avg, datediff, month, max, col, count, row_number
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedelta, datetime
 from pyspark.sql.window import Window
 
 """
@@ -18,7 +18,7 @@ input_files = {
 
 
 def get_average_durations(df,group_by_column):
-    daily_avg_duration_df = df.groupBy(f"{group_by_column}").agg(avg(datediff("end_time","start_time")*24*60).alias("average"))
+    daily_avg_duration_df = df.groupBy(f"{group_by_column}").agg(avg("duration").alias("average"))
     return daily_avg_duration_df
 
 
@@ -56,9 +56,30 @@ def get_top_3_starting_location_per_day(df):
     return top_stations
 
 
+def get_top_ages_per_trips(df):
+    
+    window_spec_desc = Window.partitionBy("age").orderBy(col("duration").desc())
+    window_spec_asc = Window.partitionBy("age").orderBy(col("duration").asc())
+
+    df_with_ranks = df \
+                .withColumn("top_rank", row_number().over(window_spec_desc)) \
+                .withColumn("bottom_rank", row_number().over(window_spec_asc))
+
+    top_10_df = df_with_ranks.filter(col("top_rank") <= 10)
+    bottom_10_df = df_with_ranks.filter(col("bottom_rank") <= 10)
+
+    combined_df = top_10_df.union(bottom_10_df)
+    return combined_df
+
+
+
 def read_csv_with_spark(spark, csv_path):
     df = spark.read.option("header", "true").csv(csv_path)
-    df_with_date = df.withColumn("date", to_date("start_time"))
+    current_year = int(datetime.now().year)
+
+    df_with_date = df.withColumn("date", to_date("start_time")) \
+                        .withColumn("duration",datediff("end_time","start_time")*24*60) \
+                        .withColumn("age",current_year - col("birthyear").cast("int"))
     return df_with_date
 
 
@@ -73,12 +94,13 @@ def main():
         df_with_date = read_csv_with_spark(spark, absolute_path)
 
         get_average_durations(df_with_date,'date').show()
-        # get_trips_per_day(df_with_date).show()
-        # get_top_starting_location_per_month(df_with_date).show()
+        get_trips_per_day(df_with_date).show()
+        get_top_starting_location_per_month(df_with_date).show()
 
-        #two_week_df = limit_df_to_two_weeks(df_with_date)
-        #get_top_3_starting_location_per_day(two_week_df).show()
+        two_week_df = limit_df_to_two_weeks(df_with_date)
+        get_top_3_starting_location_per_day(two_week_df).show()
         get_average_durations(df_with_date,'gender').show()
+        get_top_ages_per_trips(df_with_date).show()
 
 
 

@@ -3,6 +3,7 @@ from pyspark.sql.functions import to_date, avg, datediff, month, max, col, count
 from pathlib import Path
 from datetime import timedelta, datetime
 from pyspark.sql.window import Window
+import os
 
 """
 A few notes for this script:
@@ -89,6 +90,22 @@ def read_csv_with_spark(spark, csv_path):
                         .withColumn("duration",datediff("end_time","start_time")*24*60) \
                         .withColumn("age",current_year - col("birthyear").cast("int"))
     return df_with_date
+
+
+def write_df_to_csv(df, output_path):
+
+    ## Output function to write to csv
+    ## Spark does not write to a single csv, but multiple pieced files
+    ## Spark also requires configuring Hadoop first to use for output
+    ## If Hadoop is working, then should output file to directory
+
+    os.makedirs(output_path,exist_ok=True)
+    
+    df.coalesce(1) \
+      .write \
+      .mode("overwrite") \
+      .option("header", True) \
+      .csv(output_path)
 
 
 def main():
